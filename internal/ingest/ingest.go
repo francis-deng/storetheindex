@@ -70,6 +70,9 @@ type Ingester struct {
 	outEventsChans map[peer.ID][]chan cid.Cid
 	outEventsMutex sync.Mutex
 
+	waitForPendingSyncs sync.WaitGroup
+	closePendingSyncs   chan struct{}
+
 	// staging area
 	// We don't need a mutex here because only one goroutine will ever touch this.
 	stagingProviderAds map[peer.ID][]cidsWithPublisher
@@ -123,6 +126,8 @@ func NewIngester(cfg config.Ingest, h host.Host, idxr indexer.Interface, reg *re
 		entriesSel:  entSel,
 		reg:         reg,
 		inEvents:    make(chan legs.SyncFinished, 1),
+
+		closePendingSyncs: make(chan struct{}),
 
 		stagingProviderAds: make(map[peer.ID][]cidsWithPublisher),
 
@@ -209,10 +214,15 @@ func (ing *Ingester) Close() error {
 	ing.closeOnce.Do(func() {
 		close(ing.closeWorkers)
 		ing.waitForWorkers.Wait()
+		fmt.Println("Waiting for pending sync")
+		close(ing.closePendingSyncs)
+		ing.waitForPendingSyncs.Wait()
+		fmt.Println("Done waiting for pending sync")
 
-		close(ing.sigUpdate)
 		// Stop the distribution goroutine.
 		close(ing.inEvents)
+
+		close(ing.sigUpdate)
 	})
 
 	return err
@@ -233,7 +243,9 @@ func (ing *Ingester) Close() error {
 func (ing *Ingester) Sync(ctx context.Context, peerID peer.ID, peerAddr multiaddr.Multiaddr) (<-chan cid.Cid, error) {
 	out := make(chan cid.Cid, 1)
 
+	ing.waitForPendingSyncs.Add(1)
 	go func() {
+		defer ing.waitForPendingSyncs.Done()
 		defer close(out)
 
 		log := log.With("peerID", peerID)
@@ -282,6 +294,9 @@ func (ing *Ingester) Sync(ctx context.Context, peerID peer.ID, peerAddr multiadd
 				}
 			case <-ctx.Done():
 				log.Warnw("Sync cancelled", "err", ctx.Err())
+				return
+			case <-ing.closePendingSyncs:
+				log.Warnw("Sync cancelled because of close")
 				return
 			}
 		}
