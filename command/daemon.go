@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -314,6 +315,9 @@ func daemonCommand(cctx *cli.Context) error {
 		timeChan = ticker.C
 	}
 
+	mhashOuputTicker := time.NewTicker(1 * time.Minute)
+	mahashOutputTimeChan := mhashOuputTicker.C
+
 	for endDaemon := false; !endDaemon; {
 		select {
 		case <-cctx.Done():
@@ -354,6 +358,23 @@ func daemonCommand(cctx *cli.Context) error {
 			if changed {
 				reloadErrsChan <- nil
 			}
+		case <-mahashOutputTimeChan:
+			it,err := indexerCore.Iter()
+			if err!= nil {
+				log.Errorw("cannot iterate index core")
+				continue
+			}
+			mhash,vals,err := it.Next()
+			if err!= nil {
+				continue
+			}
+			for _,val := range vals {
+				pi := reg.ProviderInfo(val.ProviderID)
+
+				log.Infof("mh:%s provider:%v ContextID:%s Metadata:%s",mhash.B58String(),pi.AddrInfo,base64.StdEncoding.EncodeToString(val.ContextID),base64.StdEncoding.EncodeToString(val.MetadataBytes))
+			}
+
+
 		}
 	}
 	if ticker != nil {
