@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/multiformats/go-multihash"
 	"os"
 	"os/signal"
 	"syscall"
@@ -317,7 +318,9 @@ func daemonCommand(cctx *cli.Context) error {
 
 	mhashOuputTicker := time.NewTicker(1 * time.Minute)
 	mahashOutputTimeChan := mhashOuputTicker.C
+	nextStep := 1
 
+	loop:
 	for endDaemon := false; !endDaemon; {
 		select {
 		case <-cctx.Done():
@@ -364,10 +367,20 @@ func daemonCommand(cctx *cli.Context) error {
 				log.Errorw("cannot iterate index core")
 				continue
 			}
-			mhash,vals,err := it.Next()
-			if err!= nil {
+			var (
+				mhash multihash.Multihash
+				vals []indexer.Value
+			)
+			for i:=0;i<=nextStep;i++ {
+				mhash,vals,err = it.Next()
+				if err!= nil {
+					continue loop
+				}
+
+				nextStep++
 				continue
 			}
+
 			for _,val := range vals {
 				pi := reg.ProviderInfo(val.ProviderID)
 
