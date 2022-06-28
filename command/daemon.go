@@ -376,10 +376,9 @@ func daemonCommand(cctx *cli.Context) error {
 				if err!= nil {
 					continue loop
 				}
-
-				nextStep++
-				continue
 			}
+
+			nextStep++
 
 			for _,val := range vals {
 				pi := reg.ProviderInfo(val.ProviderID)
